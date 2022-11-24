@@ -84,4 +84,107 @@ for (i in 1:2931) {
 }
 ```
 
+Create train and CV sets
+```{r}
+CV_subset <- sample(10000, 2000)
+train_set <- data.frame(Train_Features[-CV_subset, ], y = Train_Labels[-CV_subset, ])
+CV_set <- data.frame(Train_Features[CV_subset, ], y = Train_Labels[CV_subset, ])
+```
+
+Ridge Regression with Cross-validation
+```{r}
+library(MASS)
+lambdas <- exp(seq(-15, 12, by = 0.1))
+models <- lm.ridge(y~., data = train_set, lambda = lambdas)
+```
+
+Train RMSE
+```{r}
+preds_on_train <- as.matrix(train_set[, 1:99]) %*% t(coef(models)[, -1]) + rep(1, 8000) %o% coef(models)[, 1]
+resid_on_train <- train_set[, 1] - preds_on_train
+rss_on_train <- apply(resid_on_train^2, 2, sum)
+plot(models$lambda, sqrt(rss_on_train/8000))
+min(sqrt(rss_on_train/8000))
+```
+
+CV RMSE
+```{r}
+preds_on_CV <- as.matrix(CV_set[, 1:99]) %*% t(coef(models)[, -1]) + rep(1, 2000) %o% coef(models)[, 1]
+resid_on_CV <- CV_set[, 1] - preds_on_CV
+rss_on_CV <- apply(resid_on_CV^2, 2, sum)
+plot(models$lambda, sqrt(rss_on_CV/2000))
+min(sqrt(rss_on_CV/2000))
+```
+
+
+Lasso Regression with Cross-validation
+```{r}
+library(glmnet)
+lambdas <- exp(seq(-15, 0, by = 0.1))
+models <- glmnet(train_set[, 1:99], train_set[, 100], lambda = lambdas,
+                 family = "gaussian",
+                 intercept = T, alpha = 1)
+```
+
+Train RMSE
+```{r}
+preds_on_train <- predict(models, newx = as.matrix(train_set[, 1:99]))
+resid_on_train <- apply(preds_on_train, 2, "-", train_set[, 100])
+rss_on_train <- apply(resid_on_train^2, 2, sum)
+plot(models$lambda, sqrt(rss_on_train / 8000))
+min(sqrt(rss_on_train / 8000))
+```
+
+CV RMSE
+```{r}
+preds_on_CV <- predict(models, newx = as.matrix(CV_set[, 1:99]))
+resid_on_CV <- apply(preds_on_CV, 2, "-", CV_set[, 100])
+rss_on_CV <- apply(resid_on_CV^2, 2, sum)
+plot(models$lambda, sqrt(rss_on_CV / 2000))
+min(sqrt(rss_on_CV / 2000))
+```
+
+Create complete train and test sets
+```{r}
+train_set <- data.frame(Train_Features, y = Train_Labels)
+test_set <- data.frame(Test_Features)
+```
+
+Retrain on all of training data using Lasso
+```{r}
+lambdas <- exp(seq(-15, 0, by = 0.1))
+models <- glmnet(train_set[, 1:99], train_set[, 100], lambda = lambdas,
+                 family = "gaussian",
+                 intercept = T, alpha = 1)
+```
+
+Train RMSE
+```{r}
+preds_on_train <- predict(models, newx = as.matrix(train_set[, 1:99]))
+resid_on_train <- apply(preds_on_train, 2, "-", train_set[, 100])
+rss_on_train <- apply(resid_on_train^2, 2, sum)
+rmse_on_train <- sqrt(rss_on_train / 10000)
+plot(models$lambda, rmse_on_train)
+min(rmse_on_train)
+```
+
+Predict on test
+```{r}
+minimal_index <- 1
+minimal_rmse <- 1
+for (i in 1:length(lambdas)) {
+  if (rmse_on_train[i] <= minimal_rmse){
+    minimal_index <- i
+    minimal_rmse <- rmse_on_train[i]
+  }
+}
+preds_on_test <- predict(models, newx = as.matrix(test_set[, 1:99]))[, i]
+write.csv(preds_on_test, file = "./attempts/Second_Try.csv")
+```
+
+
+
+
+
+
 
