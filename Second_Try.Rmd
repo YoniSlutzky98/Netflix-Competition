@@ -1,0 +1,87 @@
+---
+title: "First Try"
+author: 
+- "Yoni Slutzky"
+- "Sagi Ahrac"
+date: "12/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read Data
+```{r}
+Train_Features <- read.table("./data/train_ratings_all.dat", header = F, sep = "\t")
+Train_Dates_Features <- read.table("./data/train_dates_all.dat", header = F, sep = "\t")
+Train_Labels <- read.table("./data/train_y_rating.dat", header = F, sep = "\t")
+Train_Dates_Labels <- read.table("./data/train_y_date.dat", header = F, sep = "\t")
+
+Test_Features <- read.table("./data/test_ratings_all.dat", header = F, sep = "\t")
+Test_Dates_Features <- read.table("./data/test_dates_all.dat", header = F, sep = "\t")
+Test_Dates_Labels <- read.table("./data/test_y_date.dat", header = F, sep = "\t")
+
+movie_info <- read.table("./data/movie_titles.txt", header = F, sep = ',')
+```
+
+Name the Data
+```{r}
+colnames(movie_info) <- c("Release Years", "Names", "Genres")
+colnames(Train_Features) <- movie_info$Names
+colnames(Test_Features) <- colnames(Train_Features)
+colnames(Train_Labels) <- c('y')
+```
+
+Train processing - Replace zeros by average rating of each user in the genre
+```{r}
+non_zero_avg = rep(0, 10000)
+for (i in 1:10000) {
+  non_zero_avg[i] = mean(unlist(Train_Features[i, ])[as.vector(Train_Features[i, ] != 0)])
+}
+  
+avg_per_genre <- data.frame(matrix(nrow = 10000, ncol = 7))
+colnames(avg_per_genre) = unique(movie_info$Genres)
+for (genre in unique(movie_info$Genres)){
+  avg_per_genre[genre] <- rowSums(Train_Features[, movie_info$Genres == genre]) / 
+    rowSums(!!Train_Features[, movie_info$Genres == genre])
+}
+for (i in 1:10000) {
+  for (j in 1:99) {
+    if (Train_Features[i, j] == 0) {
+      Train_Features[i,j] = avg_per_genre[i, movie_info$Genres[j]]
+      if (is.na(Train_Features[i, j])){
+        Train_Features[i,j] = non_zero_avg[i]
+      }
+    }
+  }
+}
+```
+
+
+Test processing - Replace zeros by average rating of each user in the genre (to be used for prediction)
+```{r}
+non_zero_avg = rep(0, 2931)
+for (i in 1:2931) {
+  non_zero_avg[i] = mean(unlist(Test_Features[i, ])[as.vector(Test_Features[i, ] != 0)])
+}
+  
+avg_per_genre <- data.frame(matrix(nrow = 2931, ncol = 7))
+colnames(avg_per_genre) = unique(movie_info$Genres)
+for (genre in unique(movie_info$Genres)){
+  avg_per_genre[genre] <- rowSums(Test_Features[, movie_info$Genres == genre]) / 
+    rowSums(!!Test_Features[, movie_info$Genres == genre])
+}
+for (i in 1:2931) {
+  for (j in 1:99) {
+    if (Test_Features[i, j] == 0) {
+      Test_Features[i,j] = avg_per_genre[i, movie_info$Genres[j]]
+      if (is.na(Test_Features[i, j])){
+        Test_Features[i,j] = non_zero_avg[i]
+      }
+    }
+  }
+}
+```
+
+
