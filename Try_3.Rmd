@@ -1,0 +1,365 @@
+---
+title: "Third Try"
+author: 
+- "Yoni Slutzky"
+- "Sagi Ahrac"
+date: "12/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read Data
+```{r}
+tr <- read.table("./data/train_ratings_all.dat", header = F, sep = "\t")
+tr_pr <- read.csv("./data/Train_Features_Processed.csv")[, 2:100]
+tr_y <- read.table("./data/train_y_rating.dat", header = F, sep = "\t")
+movie_info <- read.table("./data/movie_titles.txt", header = F, sep = ',')
+```
+
+
+Name the Data
+```{r}
+colnames(movie_info) <- c("Release Years", "Names", "Genres")
+colnames(tr) <- movie_info$Names
+colnames(tr_pr) <- movie_info$Names
+colnames(tr_y) <- c('y')
+```
+
+
+PCA calculation
+```{r}
+tr_pca <- prcomp(tr,retx = T, center = T, scale = F)$x
+tr_pr_pca <- prcomp(tr_pr,retx = T, center = T, scale = F)$x
+```
+
+
+Train - CV split
+```{r}
+CV_subset <- sample(10000, 1500)
+
+CV_y <- tr_y[CV_subset, ]
+tr_y <- tr_y[-CV_subset, ]
+
+CV <- tr[CV_subset, ]
+tr <- tr[-CV_subset, ]
+
+CV_pr <- tr_pr[CV_subset, ]
+tr_pr <- tr_pr[-CV_subset, ]
+
+CV_pca <- tr_pca[CV_subset, ]
+tr_pca <- tr_pca[-CV_subset, ]
+
+CV_pr_pca <- tr_pr_pca[CV_subset, ]
+tr_pr_pca <- tr_pr_pca[-CV_subset, ]
+```
+
+
+RMSE function
+```{r}
+rmse <- function(true_labels, pred_labels){
+  return (sqrt(mean((true_labels-pred_labels)^2)))
+}
+```
+
+
+Baseline RMSE on linear model without filling missing data without limits
+```{r}
+lin_model <- lm(y~., data=data.frame(tr, y=tr_y))
+baseline <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV)))
+baseline
+```
+
+
+Linear model with filling missing data without limits
+```{r}
+lin_model <- lm(y~., data=data.frame(tr_pr, y=tr_y))
+score <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV_pr)))
+(baseline / score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+
+Linear model without filling missing data with limits
+```{r}
+lin_model <- lm(y~., data=data.frame(tr, y=tr_y))
+score <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(CV)), 5), 1))
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Linear model with filling missing data with limits
+```{r}
+lin_model <- lm(y~., data=data.frame(tr_pr, y=tr_y))
+score <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(CV_pr)), 5), 1))
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Ridge regression without filling missing data with limits
+```{r}
+library(MASS)
+lambdas <- exp(seq(-15, 12, by = 0.1))
+models <- lm.ridge(y~., data = data.frame(tr, y=tr_y), lambda = lambdas)
+preds_on_CV <- pmin(pmax(as.matrix(CV) %*% t(coef(models)[, -1]) + rep(1, length(CV_y)) %o% coef(models)[, 1], 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Ridge regression with filling missing data with limits
+```{r}
+models <- lm.ridge(y~., data = data.frame(tr_pr, y=tr_y), lambda = lambdas)
+preds_on_CV <- pmin(pmax(as.matrix(CV_pr) %*% t(coef(models)[, -1]) + rep(1, length(CV_y)) %o% coef(models)[, 1], 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Lasso regression without filling missing data with limits
+```{r}
+library(glmnet)
+lambdas <- exp(seq(-15, 0, by = 0.1))
+models <- glmnet(tr, tr_y, lambda = lambdas,
+                 family = "gaussian",
+                 intercept = T, alpha = 1)
+preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV)), 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Lasso regression with filling missing data with limits
+```{r}
+models <- glmnet(tr_pr, tr_y, lambda = lambdas,
+                 family = "gaussian",
+                 intercept = T, alpha = 1)
+preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV_pr)), 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Elastic net without filling missing data with limits
+```{r}
+min_rmses <- rep(0, 100)
+for (a in 1:100) {
+  lambdas <- exp(seq(-15, 0, by = 0.1))
+  models <- glmnet(tr, tr_y, lambda = lambdas,
+                   family = "gaussian",
+                   intercept = T, alpha = (1/a))
+  preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV)), 1), 5)
+  rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+  min_rmses[a] <- min(rmse_on_CV)
+}
+plot(seq(1, 0.01, by=-0.01), min_rmses)
+score <- min(min_rmses)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Elastic net with filling missing data with limits
+```{r}
+min_rmses <- rep(0, 100)
+for (a in 1:100) {
+  lambdas <- exp(seq(-15, 0, by = 0.1))
+  models <- glmnet(tr_pr, tr_y, lambda = lambdas,
+                   family = "gaussian",
+                   intercept = T, alpha = (1/a))
+  preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV_pr)), 1), 5)
+  rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+  min_rmses[a] <- min(rmse_on_CV)
+}
+plot(seq(1, 0.01, by=-0.01), min_rmses)
+score <- min(min_rmses)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Linear model on PCA without filling missing data with limits
+```{r}
+min_rmses <- rep(1, 99)
+for (i in 1:99){
+  lin_model <- lm(y~., data=data.frame(X=tr_pca[, 1:i], y=tr_y))
+  min_rmses[i] <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(X=CV_pca[, 1:i])), 5), 1))
+}
+plot(1:99, min_rmses)
+score <- min(min_rmses)
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+
+Linear model on PCA with filling missing data with limits
+```{r}
+min_rmses <- rep(1, 99)
+for (i in 1:99){
+  lin_model <- lm(y~., data=data.frame(X=tr_pr_pca[, 1:i], y=tr_y))
+  min_rmses[i] <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(X=CV_pr_pca[, 1:i])), 5), 1))
+}
+plot(1:99, min_rmses)
+score <- min(min_rmses)
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+
+Ridge regression on PCA on PCA without filling missing data with limits
+```{r}
+lambdas <- exp(seq(-15, 12, by = 0.1))
+models <- lm.ridge(y~., data = data.frame(tr_pca, y=tr_y), lambda = lambdas)
+preds_on_CV <- pmin(pmax(as.matrix(CV_pca) %*% t(coef(models)[, -1]) + rep(1, length(CV_y)) %o% coef(models)[, 1], 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Ridge regression on PCA with filling missing data with limits
+```{r}
+models <- lm.ridge(y~., data = data.frame(tr_pr_pca, y=tr_y), lambda = lambdas)
+preds_on_CV <- pmin(pmax(as.matrix(CV_pr_pca) %*% t(coef(models)[, -1]) + rep(1, length(CV_y)) %o% coef(models)[, 1], 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Lasso regression on PCA without filling missing data with limits
+```{r}
+lambdas <- exp(seq(-15, 0, by = 0.1))
+models <- glmnet(tr_pca, tr_y, lambda = lambdas,
+                 family = "gaussian",
+                 intercept = T, alpha = 1)
+preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV_pca)), 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Lasso regression on PCA with filling missing data with limits
+```{r}
+models <- glmnet(tr_pr_pca, tr_y, lambda = lambdas,
+                 family = "gaussian",
+                 intercept = T, alpha = 1)
+preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV_pr_pca)), 1), 5)
+rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+plot(models$lambda, rmse_on_CV)
+score <- min(rmse_on_CV)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Elastic net on PCA without filling missing data with limits
+```{r}
+min_rmses <- rep(0, 100)
+for (a in 1:100) {
+  lambdas <- exp(seq(-15, 0, by = 0.1))
+  models <- glmnet(tr_pca, tr_y, lambda = lambdas,
+                   family = "gaussian",
+                   intercept = T, alpha = (1/a))
+  preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV_pca)), 1), 5)
+  rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+  min_rmses[a] <- min(rmse_on_CV)
+}
+plot(seq(1, 0.01, by=-0.01), min_rmses)
+score <- min(min_rmses)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Elastic net on PCA with filling missing data with limits
+```{r}
+min_rmses <- rep(0, 100)
+for (a in 1:100) {
+  lambdas <- exp(seq(-15, 0, by = 0.1))
+  models <- glmnet(tr_pr_pca, tr_y, lambda = lambdas,
+                   family = "gaussian",
+                   intercept = T, alpha = (1/a))
+  preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(CV_pr_pca)), 1), 5)
+  rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = CV_y)
+  min_rmses[a] <- min(rmse_on_CV)
+}
+plot(seq(1, 0.01, by=-0.01), min_rmses)
+score <- min(min_rmses)
+(baseline / score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Creating full train and test sets
+```{r}
+train_features <- rbind(tr_pr_pca, CV_pr_pca)
+train_labels <- c(tr_y, CV_y)
+test_features <- prcomp(read.csv("./data/Test_Features_Processed.csv")[, 2:100], 
+       retx = T, center = T, scale = F)$x
+```
+
+
+Predicting using Linear model on PCA with filling missing data with limits
+```{r}
+min_rmse <- 1
+min_index <- 0
+for (i in 1:99){
+  lin_model <- lm(y~., data=data.frame(X=tr_pr_pca[, 1:i], y=tr_y))
+  curr_mse <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(X=CV_pr_pca[, 1:i])), 5), 1))
+  if (curr_mse <= min_rmse){
+    min_rmse <- curr_mse
+    min_index = i
+  }
+}
+lin_model <- lm(y~., data=data.frame(X=train_features[, 1:min_index], y=train_labels))
+preds_on_train <- pmax(pmin(predict(lin_model, newdata = data.frame(X=train_features[, 1:min_index])), 5), 1)
+rmse(train_labels, preds_on_train)
+preds_on_test <- pmax(pmin(predict(lin_model, newdata = data.frame(X=test_features[, 1:min_index])), 5), 1)
+write.csv(preds_on_test, "./attempts/Third_Try.csv")
+```
+
+

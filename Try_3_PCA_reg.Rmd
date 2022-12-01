@@ -1,5 +1,5 @@
 ---
-title: "First Try"
+title: "Third Try"
 author: 
 - "Yoni Slutzky"
 - "Sagi Ahrac"
@@ -31,8 +31,6 @@ colnames(tr_y) <- c('y')
 
 PCA calculation
 ```{r}
-tr <- data.frame(tr, tr^2, tr^3)
-tr_pr <- data.frame(tr_pr, tr_pr^2, tr_pr^3)
 tr_pca <- prcomp(tr,retx = T, center = T, scale = F)$x
 tr_pr_pca <- prcomp(tr_pr,retx = T, center = T, scale = F)$x
 ```

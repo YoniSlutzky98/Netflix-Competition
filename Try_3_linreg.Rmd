@@ -1,5 +1,5 @@
 ---
-title: "First Try"
+title: "Third Try"
 author: 
 - "Yoni Slutzky"
 - "Sagi Ahrac"
@@ -33,14 +33,14 @@ Train - CV split
 ```{r}
 CV_subset <- sample(10000, 2000)
 
-CV <- data.frame(tr[CV_subset, ], tr[CV_subset,] ^ 2, tr[CV_subset,] ^ 3)
+CV <- data.frame(tr[CV_subset, ])
 CV_y <- tr_y[CV_subset, ]
 
-tr <- data.frame(tr[-CV_subset, ], tr[-CV_subset,] ^ 2, tr[-CV_subset,] ^ 3)
+tr <- data.frame(tr[-CV_subset, ])
 tr_y <- tr_y[-CV_subset, ]
 
-CV_pr <- data.frame(tr_pr[CV_subset, ], tr_pr[CV_subset,] ^ 2, tr_pr[CV_subset,] ^ 3)
-tr_pr <- data.frame(tr_pr[-CV_subset, ], tr_pr[-CV_subset,] ^ 2, tr_pr[-CV_subset,] ^ 3)
+CV_pr <- data.frame(tr_pr[CV_subset, ])
+tr_pr <- data.frame(tr_pr[-CV_subset, ])
 ```
 
 
@@ -52,15 +52,15 @@ rmse <- function(true_labels, pred_labels){
 ```
 
 
-Baseline RMSE on linear model without filling missing data
+Baseline RMSE on linear model without filling missing data without limits
 ```{r}
-lin_model <- lm(y~., data=data.frame(tr[, 1:99], y=tr_y))
-baseline <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV[, 1:99])))
+lin_model <- lm(y~., data=data.frame(tr, y=tr_y))
+baseline <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV)))
 baseline
 ```
 
 
-RMSE on linear model with filling missing data
+Linear model with filling missing data without limits
 ```{r}
 lin_model <- lm(y~., data=data.frame(tr_pr, y=tr_y))
 score <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV_pr)))
@@ -71,7 +71,7 @@ diff
 ```
 
 
-RMSE on linear model without filling missing data with limits
+Linear model without filling missing data with limits
 ```{r}
 lin_model <- lm(y~., data=data.frame(tr, y=tr_y))
 score <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(CV)), 5), 1))
@@ -81,7 +81,7 @@ diff
 ```
 
 
-RMSE on linear model with filling missing data
+Linear model with filling missing data
 ```{r}
 lin_model <- lm(y~., data=data.frame(tr_pr, y=tr_y))
 score <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(CV_pr)), 5), 1))
