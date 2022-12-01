@@ -33,14 +33,14 @@ Train - CV split
 ```{r}
 CV_subset <- sample(10000, 2000)
 
-CV <- tr[CV_subset, ]
+CV <- data.frame(tr[CV_subset, ], tr[CV_subset,] ^ 2, tr[CV_subset,] ^ 3)
 CV_y <- tr_y[CV_subset, ]
 
-tr <- tr[-CV_subset, ]
+tr <- data.frame(tr[-CV_subset, ], tr[-CV_subset,] ^ 2, tr[-CV_subset,] ^ 3)
 tr_y <- tr_y[-CV_subset, ]
 
-CV_pr <- tr_pr[CV_subset, ]
-tr_pr <- tr_pr[-CV_subset, ]
+CV_pr <- data.frame(tr_pr[CV_subset, ], tr_pr[CV_subset,] ^ 2, tr_pr[CV_subset,] ^ 3)
+tr_pr <- data.frame(tr_pr[-CV_subset, ], tr_pr[-CV_subset,] ^ 2, tr_pr[-CV_subset,] ^ 3)
 ```
 
 
@@ -54,8 +54,8 @@ rmse <- function(true_labels, pred_labels){
 
 Baseline RMSE on linear model without filling missing data
 ```{r}
-lin_model <- lm(y~., data=data.frame(tr, y=tr_y))
-baseline <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV)))
+lin_model <- lm(y~., data=data.frame(tr[, 1:99], y=tr_y))
+baseline <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV[, 1:99])))
 baseline
 ```
 

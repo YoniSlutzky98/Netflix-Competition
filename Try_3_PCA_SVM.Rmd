@@ -1,0 +1,135 @@
+---
+title: "First Try"
+author: 
+- "Yoni Slutzky"
+- "Sagi Ahrac"
+date: "12/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read Data
+```{r}
+tr <- read.table("./data/train_ratings_all.dat", header = F, sep = "\t")
+tr_pr <- read.csv("./data/Train_Features_Processed.csv")[, 2:100]
+tr_y <- read.table("./data/train_y_rating.dat", header = F, sep = "\t")
+movie_info <- read.table("./data/movie_titles.txt", header = F, sep = ',')
+```
+
+
+Name the Data
+```{r}
+colnames(movie_info) <- c("Release Years", "Names", "Genres")
+colnames(tr) <- movie_info$Names
+colnames(tr_pr) <- movie_info$Names
+colnames(tr_y) <- c('y')
+```
+
+
+PCA calculation
+```{r}
+tr <- data.frame(tr, tr^2, tr^3)
+tr_pr <- data.frame(tr_pr, tr_pr^2, tr_pr^3)
+tr_pca <- prcomp(tr,retx = T, center = T, scale = F)$x
+tr_pr_pca <- prcomp(tr_pr,retx = T, center = T, scale = F)$x
+```
+
+
+
+Train - CV split
+```{r}
+CV_subset <- sample(10000, 2000)
+
+CV_y <- tr_y[CV_subset, ]
+tr_y <- tr_y[-CV_subset, ]
+
+CV <- tr[CV_subset, ]
+tr <- tr[-CV_subset, ]
+
+CV_pr <- tr_pr[CV_subset, ]
+tr_pr <- tr_pr[-CV_subset, ]
+
+CV_pca <- tr_pca[CV_subset, ]
+tr_pca <- tr_pca[-CV_subset, ]
+
+CV_pr_pca <- tr_pr_pca[CV_subset, ]
+tr_pr_pca <- tr_pr_pca[-CV_subset, ]
+```
+
+
+RMSE function
+```{r}
+rmse <- function(true_labels, pred_labels){
+  return (sqrt(mean((true_labels-pred_labels)^2)))
+}
+```
+
+
+Baseline RMSE on linear model without filling missing data
+```{r}
+lin_model <- lm(y~., data=data.frame(tr[, 1:99], y=tr_y))
+baseline <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV[, 1:99])))
+baseline
+```
+
+
+RMSE on linear model with filling missing data with limits
+```{r}
+lin_model <- lm(y~., data=data.frame(tr_pr, y=tr_y))
+score <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(CV_pr)), 5), 1))
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+
+SVM on PCA without filling missing data with linear kernel
+```{r}
+library(e1071)
+model <- svm(y~., data = data.frame(tr_pca[, 1:10], y=tr_y), kernel = "linear", cost = 10, scale = F)
+preds_on_CV <- as.numeric(predict(model, newdata = CV_pca[, 1:10]))
+score <- rmse(CV_y, preds_on_CV)
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+
+SVM on PCA with filling missing data with linear kernel
+```{r}
+model <- svm(y~., data = data.frame(tr_pr_pca[, 1:10], y=tr_y), kernel = "linear", cost = 10, scale = F)
+preds_on_CV <- as.numeric(predict(model, newdata = CV_pr_pca[, 1:10]))
+score <- rmse(CV_y, preds_on_CV)
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+SVM on PCA without filling missing data with radial kernel
+```{r}
+model <- svm(y~., data = data.frame(tr_pca[, 1:10], y=tr_y), kernel = "radial", cost = 5, scale = F)
+preds_on_CV <- as.numeric(predict(model, newdata = CV_pca[, 1:10]))
+score <- rmse(CV_y, preds_on_CV)
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+
+SVM on PCA with filling missing data with radial kernel
+```{r}
+model <- svm(y~., data = data.frame(tr_pr_pca[, 1:10], y=tr_y), kernel = "radial", cost = 5, scale = F)
+preds_on_CV <- as.numeric(predict(model, newdata = CV_pr_pca[, 1:10]))
+score <- rmse(CV_y, preds_on_CV)
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```

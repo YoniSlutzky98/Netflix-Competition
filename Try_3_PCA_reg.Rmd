@@ -1,0 +1,144 @@
+---
+title: "First Try"
+author: 
+- "Yoni Slutzky"
+- "Sagi Ahrac"
+date: "12/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read Data
+```{r}
+tr <- read.table("./data/train_ratings_all.dat", header = F, sep = "\t")
+tr_pr <- read.csv("./data/Train_Features_Processed.csv")[, 2:100]
+tr_y <- read.table("./data/train_y_rating.dat", header = F, sep = "\t")
+movie_info <- read.table("./data/movie_titles.txt", header = F, sep = ',')
+```
+
+
+Name the Data
+```{r}
+colnames(movie_info) <- c("Release Years", "Names", "Genres")
+colnames(tr) <- movie_info$Names
+colnames(tr_pr) <- movie_info$Names
+colnames(tr_y) <- c('y')
+```
+
+
+PCA calculation
+```{r}
+tr <- data.frame(tr, tr^2, tr^3)
+tr_pr <- data.frame(tr_pr, tr_pr^2, tr_pr^3)
+tr_pca <- prcomp(tr,retx = T, center = T, scale = F)$x
+tr_pr_pca <- prcomp(tr_pr,retx = T, center = T, scale = F)$x
+```
+
+
+Train - CV split
+```{r}
+CV_subset <- sample(10000, 2000)
+
+CV_y <- tr_y[CV_subset, ]
+tr_y <- tr_y[-CV_subset, ]
+
+CV <- tr[CV_subset, ]
+tr <- tr[-CV_subset, ]
+
+CV_pr <- tr_pr[CV_subset, ]
+tr_pr <- tr_pr[-CV_subset, ]
+
+CV_pca <- tr_pca[CV_subset, ]
+tr_pca <- tr_pca[-CV_subset, ]
+
+CV_pr_pca <- tr_pr_pca[CV_subset, ]
+tr_pr_pca <- tr_pr_pca[-CV_subset, ]
+```
+
+
+RMSE function
+```{r}
+rmse <- function(true_labels, pred_labels){
+  return (sqrt(mean((true_labels-pred_labels)^2)))
+}
+```
+
+
+Baseline RMSE on linear model without filling missing data
+```{r}
+lin_model <- lm(y~., data=data.frame(tr[, 1:99], y=tr_y))
+baseline <- rmse(CV_y, predict(lin_model, newdata = data.frame(CV[, 1:99])))
+baseline
+```
+
+
+Linear model on PCA with filling missing data with limits
+```{r}
+min_rmses <- rep(1, 99)
+for (i in 1:99){
+  lin_model <- lm(y~., data=data.frame(X=tr_pr_pca[, 1:i], y=tr_y))
+  min_rmses[i] <- rmse(CV_y, pmax(pmin(predict(lin_model, newdata = data.frame(X=CV_pr_pca[, 1:i])), 5), 1))
+}
+plot(1:99, min_rmses)
+score <- min(min_rmses)
+(baseline/score - 1) * 100
+diff <- c(baseline, score)
+names(diff) <- c("baseline", "score")
+diff
+```
+
+
+Multinom Regression on PCA without filling missing data with limits
+```{r}
+library(nnet)
+rmse_on_CV_likely <- rep(1, 99)
+rmse_on_CV_expected <- rep(1, 99)
+for (i in 1:99){
+  model <- multinom(as.factor(y)~., family = multinomial, data = data.frame(X=tr_pca[, 1:i], y = tr_y), maxit = 300, trace = F)
+  preds_on_CV <- as.numeric(predict(model, newdata = as.matrix(data.frame(X=CV_pca[, 1:i]))))
+  rmse_on_CV_likely[i] <- rmse(CV_y, preds_on_CV)
+  preds_on_CV <- as.numeric(predict(model, newdata = as.matrix(data.frame(X=CV_pca[, 1:i])), type = "prob") %*% (1:5))
+  rmse_on_CV_expected[i] <- rmse(CV_y, preds_on_CV)
+}
+plot(1:99, rmse_on_CV_likely)
+score <- min(rmse_on_CV_likely)
+(baseline/score - 1) * 100
+diff[2] <- score
+diff
+
+plot(1:99, rmse_on_CV_expected)
+score <- min(rmse_on_CV_expected)
+(baseline/score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
+Multinom Regression on PCA with filling missing data with limits
+```{r}
+rmse_on_CV_likely <- rep(1, 99)
+rmse_on_CV_expected <- rep(1, 99)
+for (i in 1:99){
+  model <- multinom(as.factor(y)~., family = multinomial, data = data.frame(X=tr_pr_pca[, 1:i], y = tr_y), maxit = 300, trace = F)
+  preds_on_CV <- as.numeric(predict(model, newdata = as.matrix(data.frame(X=CV_pr_pca[, 1:i]))))
+  rmse_on_CV_likely[i] <- rmse(CV_y, preds_on_CV)
+  preds_on_CV <- as.numeric(predict(model, newdata = as.matrix(data.frame(X=CV_pca[, 1:i])), type = "prob") %*% (1:5))
+  rmse_on_CV_expected[i] <- rmse(CV_y, preds_on_CV)
+}
+plot(1:99, rmse_on_CV_likely)
+score <- min(rmse_on_CV_likely)
+(baseline/score - 1) * 100
+diff[2] <- score
+diff
+
+plot(1:99, rmse_on_CV_expected)
+score <- min(rmse_on_CV_expected)
+(baseline/score - 1) * 100
+diff[2] <- score
+diff
+```
+
+
