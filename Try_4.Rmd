@@ -1,0 +1,136 @@
+---
+title: "Third Try"
+author: 
+- "Yoni Slutzky"
+- "Sagi Ahrac"
+date: "12/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+BASE RMSE
+Read Data
+```{r}
+base_tr <- read.table("./data/train_ratings_all.dat", header = F, sep = "\t")
+tr_y <- read.table("./data/train_y_rating.dat", header = F, sep = "\t")
+movie_info <- read.table("./data/movie_titles.txt", header = F, sep = ',')
+```
+
+Name the Data
+```{r}
+colnames(movie_info) <- c("Release Years", "Names", "Genres")
+colnames(base_tr) <- movie_info$Names
+colnames(tr_y) <- c('y')
+```
+
+Create test and cv sets
+```{r}
+n <- length(unlist(tr_y))
+cv_subset = sample(n, 2000)
+cv_base <- base_tr[cv_subset, ]
+cv_y <- tr_y[cv_subset, ]
+base_tr_tr <- base_tr[-cv_subset, ]
+tr_tr_y <- tr_y[-cv_subset, ]
+```
+
+RMSE function
+```{r}
+rmse <- function(true_labels, pred_labels){
+  return (sqrt(mean((true_labels-pred_labels)^2)))
+}
+```
+
+RMSE on basic linear model
+```{r}
+model <- lm(y~., data = data.frame(X = base_tr_tr, y = tr_tr_y))
+preds <- predict(model, newdata = data.frame(X = cv_base))
+baseline <- rmse(cv_y, preds)
+baseline
+```
+
+Read processed data
+```{r}
+tr <- read.csv("./data/Train_Features_Processed.csv")[, 2:100]
+test <- read.csv("./data/Test_Features_Processed.csv")[, 2:100]
+```
+
+
+Name the Data
+```{r}
+colnames(tr) <- c(movie_info$Names)
+colnames(test) <- c(movie_info$Names)
+```
+
+
+Create CV and training sets
+```{r}
+cv <- tr[cv_subset, ]
+tr_tr <- tr[-cv_subset,]
+```
+
+
+RMSE on basic linear model with limits (filled missing values, added dates)
+```{r}
+model <- lm(y~., data = data.frame(X = tr_tr, y = tr_tr_y))
+preds <- pmin(pmax(predict(model, newdata = data.frame(X = cv)), 1), 5)
+score <- rmse(cv_y, preds)
+(baseline / score - 1) * 100
+```
+
+RMSE on ridge regression with limits (filled missing values, added dates)
+```{r}
+library(MASS)
+lambdas <- exp(seq(-15, 12, by = 0.1))
+models <- lm.ridge(y~., data = data.frame(tr_tr, y=tr_tr_y), lambda = lambdas)
+preds <- pmin(pmax(as.matrix(cv) %*% t(coef(models)[, -1]) + rep(1, length(cv_y)) %o% coef(models)[, 1], 1), 5)
+rmse_on_cv <- apply(preds, 2, rmse, true_labels = cv_y)
+plot(models$lambda, rmse_on_cv)
+score <- min(rmse_on_cv)
+baseline / score
+score
+```
+
+
+RMSE on ridge regression with limits (filled missing values, added dates)
+```{r}
+library(glmnet)
+lambdas <- exp(seq(-15, 0, by = 0.1))
+models <- glmnet(tr_tr, tr_tr_y, lambda = lambdas,
+                 family = "gaussian",
+                 intercept = T, alpha = 1)
+preds <- pmin(pmax(predict(models, newx = as.matrix(cv)), 1), 5)
+rmse_on_cv <- apply(preds, 2, rmse, true_labels = cv_y)
+plot(models$lambda, rmse_on_cv)
+score <- min(rmse_on_cv)
+baseline / score
+score
+```
+
+
+KNN with correlation matrix with bias adjustment
+```{r}
+cor_mat <- cor(t(tr))[cv_subset, -cv_subset]
+rmse_on_cv <- rep(NA, 100)
+for (k in 1:100){
+  preds <- rep(NA, 2000)
+  for (i in 1:2000){
+    nei <- order(cor_mat[i,], decreasing = T)[1:k]
+    if (sum(is.na(cor_mat[i, nei])) > 0) {
+      print(i)
+      break
+    }
+    adj_y <- tr_tr_y[nei] - apply(tr_tr[nei, ], MARGIN = 1, mean)
+    preds[i] <- (cor_mat[i, nei] %*% adj_y) / sum(abs(cor_mat[i, nei])) +
+      mean(unlist(cv[i, ]))
+  }
+  rmse_on_cv[k] <- rmse(cv_y, preds)
+}
+(baseline / min(rmse_on_cv) - 1) * 100
+```
+
+
+
