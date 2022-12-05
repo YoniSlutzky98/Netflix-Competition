@@ -132,5 +132,3 @@ for (k in 1:100){
 (baseline / min(rmse_on_cv) - 1) * 100
 ```
 
-
-
