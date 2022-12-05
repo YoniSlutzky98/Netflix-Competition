@@ -55,14 +55,25 @@ baseline
 Read processed data
 ```{r}
 tr <- read.csv("./data/Train_Features_Processed.csv")[, 2:100]
+tr_date <- read.table("./data/train_dates_all.dat", header = F, sep = "\t")[, 1:14]
+tr_y_date <- read.table("./data/train_y_date.dat", header = F, sep = "\t")
+tr <- cbind(tr, tr_date, tr_y_date)
+
 test <- read.csv("./data/Test_Features_Processed.csv")[, 2:100]
+test_date <- read.table("./data/test_dates_all.dat", header = F, sep = "\t")[, 1:14]
+test_y_date <- read.table("./data/test_y_date.dat", header = F, sep = "\t")
+test <- cbind(test, test_date, test)
 ```
 
 
 Name the Data
 ```{r}
-colnames(tr) <- c(movie_info$Names)
-colnames(test) <- c(movie_info$Names)
+colnames(tr) <- c(movie_info$Names, 
+                  paste(movie_info$Names[1:14], " date"),
+                  "y date")
+colnames(test) <- c(movie_info$Names, 
+                  paste(movie_info$Names[1:14], " date"),
+                  "y date")
 ```
 
 
