@@ -1,0 +1,152 @@
+---
+title: "Third Try"
+author: 
+- "Yoni Slutzky"
+- "Sagi Ahrac"
+date: "12/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+BASE RMSE
+Read Data
+```{r}
+base_tr <- read.table("./data/train_ratings_all.dat", header = F, sep = "\t")
+tr_y <- read.table("./data/train_y_rating.dat", header = F, sep = "\t")
+base_test <- read.table("./data/test_ratings_all.dat", header = F, sep = "\t")
+movie_info <- read.table("./data/movie_titles.txt", header = F, sep = ',')
+```
+
+Name the Data
+```{r}
+colnames(movie_info) <- c("Release Years", "Names", "Genres")
+colnames(base_tr) <- movie_info$Names
+colnames(base_test) <- movie_info$Names
+colnames(tr_y) <- c('y')
+```
+
+RMSE function
+```{r}
+rmse <- function(true_labels, pred_labels){
+  return (sqrt(mean((true_labels-pred_labels)^2)))
+}
+```
+
+Read processed data
+```{r}
+tr_date <- read.table("./data/train_dates_all.dat", header = F, sep = "\t")[, 1:14]
+tr_date <- sweep(((tr_date / 365) + 1997), 2, movie_info$`Release Years`)
+tr_y_date <- read.table("./data/train_y_date.dat", header = F, sep = "\t")
+tr_y_date <- ((tr_y_date / 365) + 1997) - 2000
+tr <- cbind(base_tr, tr_date, tr_y_date)
+
+test_date <- read.table("./data/test_dates_all.dat", header = F, sep = "\t")[, 1:14]
+test_date <- sweep(((test_date / 365) + 1997), 2, movie_info$`Release Years`)
+test_y_date <- read.table("./data/test_y_date.dat", header = F, sep = "\t")
+test_y_date <- ((test_y_date / 365) + 1997) - 2000
+test <- cbind(base_test, test_date, test_y_date)
+
+complete <- rbind(tr,test)
+```
+
+
+Name the Data
+```{r}
+colnames(tr) <- c(movie_info$Names, 
+                  paste(movie_info$Names[1:14], " date"),
+                  "y date")
+colnames(test) <- c(movie_info$Names, 
+                  paste(movie_info$Names[1:14], " date"),
+                  "y date")
+```
+
+
+Fill missing values using linear regression
+```{r}
+miss_counts <- colSums(complete[, 1:99] != 0)
+ord <- order(miss_counts, decreasing = T)
+complete <- complete[, c(ord, 100:114)]
+for (i in (15:99)) {
+  miss_subset <- which(complete[, i] == 0)
+  cols <- c(1:(i-1), 100:114)
+  lin_model <- lm(missing~., data = data.frame(X=complete[-miss_subset, cols],
+                                               missing=complete[-miss_subset, i]))
+  complete[miss_subset, i] <- predict(lin_model, 
+                                      newdata = data.frame(X=complete[miss_subset, cols]))
+}
+
+tr <- complete[(1:10000),]
+test <- complete[-(1:10000),]
+```
+
+Pick best lambda and alpha combination to use for elastic net with dates using cv
+```{r}
+iter = 50
+baseline <- 1
+best_a <- 0
+best_lambda <- 0
+best_improve <- 0
+sum_of_as <- 0
+sum_of_lambdas <- 0
+for (j in (1:iter)){
+  n <- 10000
+  size <- 1000
+  cv_subset <- sample(n, size)
+  baseline <- rmse(tr_y[cv_subset,], predict(lm(y~.,data.frame(X = base_tr[-cv_subset,], 
+                                                       y = tr_y[-cv_subset,])), 
+                         newdata=data.frame(X = base_tr[cv_subset,])))
+  lambdas <- exp(seq(-15, 0, by = 0.1))
+  min_rmses <- numeric(100)
+  best_lambdas <- numeric(100)
+  for (a in c(seq(1, 2, 0.1), 3:100)) {
+    models <- glmnet(tr[-cv_subset,], tr_y[-cv_subset,], lambda = lambdas,
+                     family = "gaussian",
+                     intercept = T, alpha = (1/a))
+    preds_on_CV <- pmin(pmax(predict(models, newx = as.matrix(tr[cv_subset,])), 1), 5)
+    rmse_on_CV <- apply(preds_on_CV, 2, rmse, true_labels = tr_y[cv_subset,])
+    min_rmses[a] <- min(rmse_on_CV)
+    best_lambdas[a] <- lambdas[which.min(rmse_on_CV)]
+  }
+  if (best_improve < max((baseline / min_rmses) - 1)){
+    best_improve <- max(baseline / min_rmses - 1) 
+    best_a <- which.max((baseline / min_rmses) - 1)
+    best_lambda <- best_lambdas[which.max((baseline / min_rmses) - 1)]
+  }
+  sum_of_as <- sum_of_as + which.max((baseline / min_rmses) - 1)
+  sum_of_lambdas <- sum_of_lambdas + best_lambdas[which.max((baseline / min_rmses) - 1)]
+}
+mean_a <- sum_of_as / iter
+mean_lambda <- sum_of_lambdas / iter
+```
+
+Predict on test set with best lambda and alpha
+```{r}
+model <- glmnet(tr, as.matrix(tr_y), lambda = best_lambda, family = "gaussian", 
+                intercept = T, alpha = (1/best_a))
+preds_on_test <- pmin(pmax(predict(model, newx = as.matrix(test)), 1), 5)
+write.csv(preds_on_test, file = "./attempts/Fourth_Try.csv")
+```
+
+Check RMSE on train set
+```{r}
+preds_on_train <- pmin(pmax(predict(model, newx = as.matrix(tr)), 1), 5) 
+rmse(as.matrix(tr_y), preds_on_train)
+```
+
+Predict on test set with mean lambda and alpha
+```{r}
+model <- glmnet(tr, as.matrix(tr_y), lambda = mean_lambda, family = "gaussian", 
+                intercept = T, alpha = (1/mean_a))
+preds_on_test <- pmin(pmax(predict(model, newx = as.matrix(test)), 1), 5)
+write.csv(preds_on_test, file = "./attempts/Fourth_Try.csv")
+```
+
+Check RMSE on train set
+```{r}
+preds_on_train <- pmin(pmax(predict(model, newx = as.matrix(tr)), 1), 5) 
+rmse(as.matrix(tr_y), preds_on_train)
+```

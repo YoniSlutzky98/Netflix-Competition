@@ -1,0 +1,114 @@
+---
+title: "Third Try"
+author: 
+- "Yoni Slutzky"
+- "Sagi Ahrac"
+date: "12/11/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+BASE RMSE
+Read Data
+```{r}
+base_tr <- read.table("./data/train_ratings_all.dat", header = F, sep = "\t")
+tr_y <- read.table("./data/train_y_rating.dat", header = F, sep = "\t")
+base_test <- read.table("./data/test_ratings_all.dat", header = F, sep = "\t")
+movie_info <- read.table("./data/movie_titles.txt", header = F, sep = ',')
+```
+
+Name the Data
+```{r}
+colnames(movie_info) <- c("Release Years", "Names", "Genres")
+colnames(base_tr) <- movie_info$Names
+colnames(base_test) <- movie_info$Names
+colnames(tr_y) <- c('y')
+```
+
+RMSE function
+```{r}
+rmse <- function(true_labels, pred_labels){
+  return (sqrt(mean((true_labels-pred_labels)^2)))
+}
+```
+
+Read processed data
+```{r}
+tr_date <- read.table("./data/train_dates_all.dat", header = F, sep = "\t")[, 1:14]
+tr_date <- sweep(((tr_date / 365) + 1997), 2, movie_info$`Release Years`)
+tr_y_date <- read.table("./data/train_y_date.dat", header = F, sep = "\t")
+tr_y_date <- ((tr_y_date / 365) + 1997) - 2000
+tr <- cbind(base_tr, tr_date, tr_y_date)
+
+test_date <- read.table("./data/test_dates_all.dat", header = F, sep = "\t")[, 1:14]
+test_date <- sweep(((test_date / 365) + 1997), 2, movie_info$`Release Years`)
+test_y_date <- read.table("./data/test_y_date.dat", header = F, sep = "\t")
+test_y_date <- ((test_y_date / 365) + 1997) - 2000
+test <- cbind(base_test, test_date, test_y_date)
+
+complete <- rbind(tr,test)
+```
+
+
+Name the Data
+```{r}
+colnames(tr) <- c(movie_info$Names, 
+                  paste(movie_info$Names[1:14], " date"),
+                  "y date")
+colnames(test) <- c(movie_info$Names, 
+                  paste(movie_info$Names[1:14], " date"),
+                  "y date")
+```
+
+
+Fill missing values using linear regression
+```{r}
+miss_counts <- colSums(complete[, 1:99] != 0)
+ord <- order(miss_counts, decreasing = T)
+complete <- complete[, c(ord, 100:114)]
+for (i in (15:99)) {
+  miss_subset <- which(complete[, i] == 0)
+  cols <- c(1:(i-1), 100:114)
+  lin_model <- lm(missing~., data = data.frame(X=complete[-miss_subset, cols],
+                                               missing=complete[-miss_subset, i]))
+  complete[miss_subset, i] <- predict(lin_model, 
+                                      newdata = data.frame(X=complete[miss_subset, cols]))
+}
+
+tr <- complete[(1:10000),]
+test <- complete[-(1:10000),]
+```
+
+
+Boosting
+```{r}
+n <- 10000
+size <- 2000
+cv_subset <- sample(n, size)
+baseline <- rmse(tr_y[cv_subset,], predict(lm(y~.,data.frame(X = base_tr[-cv_subset,], 
+                                                     y = tr_y[-cv_subset,])), 
+                       newdata=data.frame(X = base_tr[cv_subset,])))
+library(rpart)
+rate <- 0.01
+y.now <- tr_y[-cv_subset,] - mean(tr_y[-cv_subset,])
+pred_cv <- numeric(size) + mean(tr_y[-cv_subset,])
+pred_tr <- numeric(n-size) + mean(tr_y[-cv_subset,])
+pred_test <- numeric(dim(test)[1]) + mean(tr_y[-cv_subset,])
+for (i in 1:2500){
+  tree_model <- rpart(y.now~.,data = tr[-cv_subset,], maxdepth = 3, cp = 0.00001)
+  pred_cv <- pred_cv + rate * predict(tree_model, newdata = tr[cv_subset,])
+  pred_tr <- pred_tr + rate * predict(tree_model)
+  pred_test <- pred_test + rate * predict(tree_model, newdata = test)
+  y.now <- tr_y[-cv_subset,] - pred_tr
+  if (i %% 10 == 0){
+    cat(i, "train:", rmse(tr_y[-cv_subset,], pred_tr), 
+        " cv:", rmse(tr_y[cv_subset,], pred_cv), 
+        " improve:", (baseline / rmse(tr_y[cv_subset,], pred_cv) - 1)*100, "\n")
+  }
+}
+```
+
